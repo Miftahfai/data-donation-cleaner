@@ -196,6 +196,44 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
 
   // ---------------- YouTube ----------------
+  // Google Takeout can export history as HTML instead of JSON; turn it into the same shape as the JSON.
+  function parseYtHtml(htmlText) {
+    var doc = new DOMParser().parseFromString(htmlText, "text/html");
+    var rows = [];
+    var cells = doc.querySelectorAll(".outer-cell");
+    for (var i = 0; i < cells.length; i++) {
+      var main = cells[i].querySelector(".content-cell");
+      if (!main) continue;
+      var texts = [], links = [];
+      for (var j = 0; j < main.childNodes.length; j++) {
+        var nd = main.childNodes[j];
+        if (nd.nodeType === 3) {
+          var tx = nd.textContent.replace(/\s+/g, " ").trim();
+          if (tx) texts.push(tx);
+        } else if (nd.nodeName === "A") {
+          links.push({ name: nd.textContent.trim(), url: nd.getAttribute("href") || "" });
+        }
+      }
+      if (!texts.length && !links.length) continue;
+      var time = texts.length > 1 ? texts[texts.length - 1] : "";
+      var lead = texts.length ? texts[0] : "";
+      var row = { header: "YouTube" };
+      if (links.length) {
+        row.title = (lead + " " + links[0].name).trim();
+        row.titleUrl = links[0].url;
+        if (links.length > 1) row.subtitles = [{ name: links[1].name, url: links[1].url }];
+      } else {
+        row.title = lead;
+      }
+      if (time) row.time = time; // kept exactly as Google wrote it, e.g. "Oct 1, 2026, 3:01:48 PM BST"
+      rows.push(row);
+    }
+    return rows;
+  }
+  function readYt(name, text) {
+    return /\.html$/i.test(name) ? parseYtHtml(text) : JSON.parse(text);
+  }
+
   function cleanYtWatch(entries) {
     return keepFields(entries, ["header", "title", "titleUrl", "subtitles", "time"]);
   }
@@ -237,8 +275,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
 
     // --- YouTube by suffix ---
-    var ytWatch = files.find(function (n) { return n.replace(/\\/g, "/").endsWith("history/watch-history.json"); });
-    var ytSearch = files.find(function (n) { return n.replace(/\\/g, "/").endsWith("history/search-history.json"); });
+    var ytWatch = files.find(function (n) { return /history\/watch-history\.(json|html)$/.test(n.replace(/\\/g, "/")); });
+    var ytSearch = files.find(function (n) { return /history\/search-history\.(json|html)$/.test(n.replace(/\\/g, "/")); });
     var ytSubs = files.find(function (n) { return n.replace(/\\/g, "/").endsWith("subscriptions/subscriptions.csv"); });
 
     if (ttName) {
@@ -253,25 +291,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }
     }
 
-    var ytHtml = files.some(function (n) { return /history\/(watch|search)-history\.html$/.test(n.replace(/\\/g, "/")); });
-    if (ytHtml && !ytWatch && !ytSearch) {
-      throw new Error("Your YouTube history is in HTML format, which this tool cannot read. Please request your YouTube export again from takeout.google.com: under YouTube, click \"Multiple formats\", change history from HTML to JSON, then create the export.");
-    }
-
     if (ytWatch || ytSearch || ytSubs) {
       report.platform = report.platform ? report.platform + "+YouTube" : "YouTube";
       report.removed = report.removed.concat(["Uploaded videos (MP4)", "Comments", "Video metadata",
                         "Channel settings", "Music library", "Playables", "Clips", "Playlists"]);
       if (ytWatch && opt.yt_watch) {
         tasks.push(zip.file(ytWatch).async("string").then(function (t) {
-          var c = cleanYtWatch(JSON.parse(t));
+          var c = cleanYtWatch(readYt(ytWatch, t));
           out.file("youtube/history/watch-history.json", JSON.stringify(c, null, 1));
           report.kept["yt_watch-history"] = c.length;
         }));
       }
       if (ytSearch && opt.yt_search) {
         tasks.push(zip.file(ytSearch).async("string").then(function (t) {
-          var c = cleanYtSearch(JSON.parse(t));
+          var c = cleanYtSearch(readYt(ytSearch, t));
           out.file("youtube/history/search-history.json", JSON.stringify(c, null, 1));
           report.kept["yt_search-history"] = c.length + " (with search words)";
         }));
