@@ -253,6 +253,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }
     }
 
+    var ytHtml = files.some(function (n) { return /history\/(watch|search)-history\.html$/.test(n.replace(/\\/g, "/")); });
+    if (ytHtml && !ytWatch && !ytSearch) {
+      throw new Error("Your YouTube history is in HTML format, which this tool cannot read. Please request your YouTube export again from takeout.google.com: under YouTube, click \"Multiple formats\", change history from HTML to JSON, then create the export.");
+    }
+
     if (ytWatch || ytSearch || ytSubs) {
       report.platform = report.platform ? report.platform + "+YouTube" : "YouTube";
       report.removed = report.removed.concat(["Uploaded videos (MP4)", "Comments", "Video metadata",
